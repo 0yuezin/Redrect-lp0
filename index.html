@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0a0d0e">
+<title>Névoa Redirect</title>
+<style>
+:root{
+  --bg:#090c0d;--bg-card:#101516;--bg-soft:#0d1213;--text:#f2f7f6;
+  --muted:#91a09e;--cyan:#2dffe0;--cyan-2:#77fff0;--danger:#ff6b7a;
+  --danger-bg:#2b1116;--radius:16px;--radius-sm:11px;
+  --font-display:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+button,input,select{font:inherit}
+a{color:inherit}
+.container{width:min(680px,100%);margin:auto;padding:28px 18px 44px}
+.page{min-height:100vh;display:flex;align-items:center}
+.card{background:var(--bg-card);border:1px solid #1c2427;border-radius:var(--radius);padding:22px;box-shadow:0 18px 60px rgba(0,0,0,.18)}
+.logo{display:flex;justify-content:center;background:none;border:0;padding:0;margin:0 auto 22px;cursor:pointer}
+.logo img{width:86px;height:86px;object-fit:contain;border-radius:22px;box-shadow:0 0 50px -10px var(--cyan)}
+h1,h2{font-family:var(--font-display);margin:0}
+h1{font-size:25px;text-align:center}
+h2{font-size:18px;margin-bottom:12px}
+p{line-height:1.55}
+.muted{color:var(--muted)}
+.home{text-align:center}
+.home .logo{margin-bottom:18px}
+.home .lead{max-width:520px;margin:0 auto 22px;color:var(--muted);font-weight:600}
+.badge{display:inline-block;color:var(--cyan-2);background:rgba(45,255,224,.08);padding:6px 11px;border-radius:999px;font-size:12px;font-weight:800;letter-spacing:.04em;margin-bottom:14px}
+.actions{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:999px;padding:12px 17px;font-weight:800;cursor:pointer;text-decoration:none}
+.btn-primary{background:var(--cyan);color:#06110f}
+.btn-secondary{background:none;border:1px solid #24302f;color:var(--muted)}
+.form{display:grid;gap:13px}
+label{display:grid;gap:6px;font-size:13px;font-weight:800;color:var(--muted)}
+input,select,textarea{width:100%;background:var(--bg-soft);border:1px solid #24302f;color:var(--text);border-radius:var(--radius-sm);padding:12px 13px;outline:none}
+input:focus,select:focus,textarea:focus{border-color:var(--cyan);box-shadow:0 0 0 2px rgba(45,255,224,.12)}
+textarea{min-height:180px;resize:vertical}
+.notice,.error{border-radius:var(--radius-sm);padding:11px 13px;font-size:13px;font-weight:700}
+.notice{background:#2a2410;color:#ffd873}
+.error{background:var(--danger-bg);color:var(--danger)}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.topbar .mini-logo{display:flex;align-items:center;gap:10px;text-decoration:none;font-weight:900}
+.mini-logo img{width:38px;height:38px;border-radius:10px;object-fit:contain}
+.route-list{display:grid;gap:10px;margin-top:12px}
+.route{background:var(--bg-card);border:1px solid #1c2427;border-radius:var(--radius-sm);padding:14px}
+.route-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.route strong{font-family:var(--font-display);font-size:15px;word-break:break-all}
+.route small{display:block;color:var(--muted);margin-top:5px;word-break:break-all}
+.route-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
+.route-actions button{background:var(--bg-soft);border:1px solid #24302f;color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px;font-weight:800;cursor:pointer}
+.route-actions .danger{color:var(--danger)}
+.type{font-size:11px;font-weight:900;border-radius:999px;padding:4px 8px;background:rgba(45,255,224,.08);color:var(--cyan-2);white-space:nowrap}
+.divider{height:1px;background:#1c2427;margin:22px 0}
+.back{display:inline-block;color:var(--muted);font-weight:800;text-decoration:none;margin-bottom:15px}
+.empty{text-align:center;color:var(--muted);padding:25px 10px}
+@media(max-width:520px){.route-main{display:block}.type{display:inline-block;margin-top:8px}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+const BASE = location.origin;
+let editingId = null;
+
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function normalizePath(v){
+  v=(v||"").trim();
+  if(!v) return "/";
+  if(!v.startsWith("/")) v="/"+v;
+  v=v.replace(/\/+/g,"/");
+  if(v.length>1) v=v.replace(/\/+$/,"");
+  if(!/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$/.test(v)) throw new Error("Caminho inválido.");
+  if(v.includes("..")) throw new Error("O caminho não pode conter '..'.");
+  return v;
+}
+function validUrl(v){try{const u=new URL(v);return u.protocol==="https:"||u.protocol==="http:"}catch{return false}}
+async function api(url, options={}){
+  const r=await fetch(url,{credentials:"same-origin",...options});
+  const data=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(data.erro||"Erro na API.");
+  return data;
+}
+function render(html){document.getElementById("app").innerHTML=html;}
+function publicHome(){
+  render(`<main class="page"><div class="container home">
+    <button class="logo" onclick="location.href='/admin'"><img src="/logo.png" alt="Névoa"></button>
+    <span class="badge">NÉVOA REDIRECT</span>
+    <h1>Links e páginas da Névoa</h1>
+    <p class="lead">Um endereço simples para organizar redirects e páginas HTML públicas.</p>
+    <div class="actions">
+      <a class="btn btn-primary" href="/admin">Área administrativa</a>
+      <a class="btn btn-secondary" href="https://nevoa.dpdns.org">Voltar para Névoa</a>
+    </div>
+  </div></main>`);
+}
+async function check(){
+  try{return await api("/api/auth");}catch{return {authenticated:false};}
+}
+async function showAdmin(){
+  const s=await check();
+  if(!s.authenticated){showLogin();return;}
+  showPanel();
+}
+function showLogin(msg=""){
+  render(`<main class="page"><div class="container"><div class="card">
+    <a class="back" href="/">← Névoa Redirect</a>
+    <h1>Entrar no painel</h1>
+    <p class="muted" style="text-align:center">Área administrativa protegida.</p>
+    ${msg?`<div class="error">${esc(msg)}</div>`:""}
+    <form class="form" onsubmit="login(event)">
+      <label>Usuário<input id="user" autocomplete="username" required></label>
+      <label>Senha<input id="pass" type="password" autocomplete="current-password" required></label>
+      <button class="btn btn-primary" type="submit">Entrar</button>
+    </form>
+  </div></div></main>`);
+}
+async function login(e){
+  e.preventDefault();
+  try{
+    await api("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({username:document.getElementById("user").value,password:document.getElementById("pass").value})});
+    showPanel();
+  }catch(err){showLogin(err.message);}
+}
+async function logout(){
+  await fetch("/api/auth",{method:"DELETE",credentials:"same-origin"});
+  location.href="/";
+}
+async function showPanel(){
+  render(`<main class="page"><div class="container">
+    <div class="topbar"><a class="mini-logo" href="/"><img src="/logo.png" alt="">NÉVOA REDIRECT</a><button class="btn btn-secondary" onclick="logout()">Sair</button></div>
+    <div class="card">
+      <div class="topbar"><div><h2 style="margin:0">Rotas</h2><span class="muted">Redirects e páginas HTML públicas</span></div><button class="btn btn-primary" onclick="showEditor()">+ Criar</button></div>
+      <div id="list" class="route-list">Carregando...</div>
+    </div>
+  </div></main>`);
+  loadRoutes();
+}
+async function loadRoutes(){
+  const box=document.getElementById("list");
+  try{
+    const routes=await api("/api/routes");
+    if(!routes.length){box.innerHTML='<div class="empty">Nenhuma rota cadastrada ainda.</div>';return;}
+    box.innerHTML=routes.map(r=>`<div class="route">
+      <div class="route-main"><div><strong>${esc(r.path)}</strong><small>${r.type==="redirect"?esc(r.destination):"Página HTML"}</small></div><span class="type">${r.type==="redirect"?"REDIRECT":"HTML"}</span></div>
+      <div class="route-actions">
+        <button onclick="copyRoute('${encodeURIComponent(r.path)}')">Copiar</button>
+        <button onclick="showEditor('${r.id}')">Editar</button>
+        <button class="danger" onclick="removeRoute('${r.id}')">Excluir</button>
+      </div>
+    </div>`).join("");
+  }catch(e){box.innerHTML=`<div class="error">${esc(e.message)}</div>`;}
+}
+async function copyRoute(encoded){
+  const url=BASE+decodeURIComponent(encoded);
+  await navigator.clipboard.writeText(url);
+  alert("URL copiada: "+url);
+}
+async function removeRoute(id){
+  if(!confirm("Excluir esta rota?"))return;
+  try{await api("/api/routes",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});loadRoutes();}
+  catch(e){alert(e.message);}
+}
+async function showEditor(id=null){
+  editingId=id;
+  let r=null;
+  if(id){try{r=(await api("/api/routes")).find(x=>x.id===id);}catch(e){alert(e.message);return;}}
+  render(`<main class="page"><div class="container"><div class="card">
+    <a class="back" href="/admin" onclick="event.preventDefault();showPanel()">← Rotas</a>
+    <h1>${r?"Editar rota":"Criar rota"}</h1>
+    <form class="form" onsubmit="saveRoute(event)">
+      <label>Caminho
+        <input id="path" value="${esc(r?.path||"")}" placeholder="/youtube" required>
+      </label>
+      <label>Tipo
+        <select id="type" onchange="toggleType()">
+          <option value="redirect" ${r?.type==="redirect"||!r?"selected":""}>Redirect</option>
+          <option value="html" ${r?.type==="html"?"selected":""}>HTML</option>
+        </select>
+      </label>
+      <div id="redirectFields">
+        <label>Destino
+          <input id="destination" type="url" value="${esc(r?.destination||"")}" placeholder="https://youtube.com/@0yue">
+        </label>
+      </div>
+      <div id="htmlFields" style="display:none">
+        <label>Arquivo HTML (máx. 512 KB)
+          <input id="htmlFile" type="file" accept=".html,.htm,text/html">
+        </label>
+        <div class="notice">O HTML é publicado isoladamente e recebe uma política de segurança que impede acesso ao painel por scripts.</div>
+      </div>
+      <button class="btn btn-primary" type="submit">${r?"Salvar alterações":"Criar rota"}</button>
+    </form>
+  </div></div></main>`);
+  toggleType();
+}
+function toggleType(){
+  const type=document.getElementById("type").value;
+  document.getElementById("redirectFields").style.display=type==="redirect"?"grid":"none";
+  document.getElementById("htmlFields").style.display=type==="html"?"grid":"none";
+}
+async function saveRoute(e){
+  e.preventDefault();
+  const type=document.getElementById("type").value;
+  const path=normalizePath(document.getElementById("path").value);
+  const body={id:editingId,path,type};
+  if(type==="redirect"){
+    const destination=document.getElementById("destination").value.trim();
+    if(!validUrl(destination))throw new Error("Destino inválido.");
+    body.destination=destination;
+  }else{
+    const f=document.getElementById("htmlFile").files[0];
+    if(!editingId && !f) {alert("Selecione um arquivo HTML.");return;}
+    if(f){
+      if(f.size>512*1024){alert("O arquivo HTML excede 512 KB.");return;}
+      if(!/\.html?$/i.test(f.name)){alert("Use um arquivo .html ou .htm.");return;}
+      body.filename=f.name.replace(/[^\w.\-]/g,"_").slice(0,120);
+      body.html=await f.text();
+    }
+  }
+  try{
+    await api("/api/routes",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    showPanel();
+  }catch(err){alert(err.message);}
+}
+function notFound(){
+  render(`<main class="page"><div class="container"><div class="card" style="text-align:center">
+    <button class="logo" onclick="location.href='/admin'"><img src="/logo.png" alt="Névoa"></button>
+    <span class="badge">404</span>
+    <h1>Página não encontrada</h1>
+    <p class="muted">Essa rota não existe no Névoa Redirect.</p>
+    <div class="actions"><a class="btn btn-primary" href="https://nevoa.dpdns.org">Voltar para Névoa</a></div>
+  </div></div></main>`);
+}
+function route(){
+  const p=location.pathname;
+  if(p==="/")return publicHome();
+  if(p==="/admin")return showAdmin();
+  notFound();
+}
+route();
+</script>
+</body>
+</html>
